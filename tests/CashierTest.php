@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\Tests;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\CashierServiceProvider;
 use Laravel\Cashier\Order\Order;

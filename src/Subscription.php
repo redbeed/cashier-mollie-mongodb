@@ -3,9 +3,8 @@
 namespace Laravel\Cashier;
 
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Events\SubscriptionResumed;
 use Laravel\Cashier\Order\Contracts\InteractsWithOrderItems;
 use Laravel\Cashier\Order\Contracts\PreprocessesOrderItems;
@@ -34,7 +33,7 @@ use Money\Money;
  * @property mixed owner_id
  * @property string owner_type
  * @property string next_plan
- * @property string plan
+ * @property string plan_name
  * @property int quantity
  * @property mixed scheduled_order_item_id
  * @property OrderItem scheduledOrderItem
@@ -207,7 +206,7 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
         }
 
         $applyNewSettings = function() use ($newPlan) {
-            $this->plan = $newPlan->name();
+            $this->plan_name = $newPlan->name();
         };
 
         $this->restartCycleWithModifications($applyNewSettings, now(), $invoiceNow);
@@ -238,17 +237,15 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
     {
         $new_plan = app(PlanRepository::class)::findOrFail($plan);
 
-        return DB::transaction(function () use ($plan, $new_plan) {
-            $this->next_plan = $plan;
+        $this->next_plan = $plan;
 
-            $this->removeScheduledOrderItem();
+        $this->removeScheduledOrderItem();
 
-            $this->scheduleNewOrderItemAt($this->cycle_ends_at, [], true, $new_plan);
+        $this->scheduleNewOrderItemAt($this->cycle_ends_at, [], true, $new_plan);
 
-            $this->save();
+        $this->save();
 
-            return $this;
-        });
+        return $this;
     }
 
     /**
@@ -277,18 +274,16 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
      */
     public function cancelAt(Carbon $endsAt, $reason = SubscriptionCancellationReason::UNKNOWN)
     {
-        return DB::transaction(function () use ($reason, $endsAt) {
-            $this->removeScheduledOrderItem();
+        $this->removeScheduledOrderItem();
 
-            $this->fill([
-                'ends_at' => $endsAt,
-                'cycle_ends_at' => null,
-            ])->save();
+        $this->fill([
+            'ends_at' => $endsAt,
+            'cycle_ends_at' => null,
+        ])->save();
 
-            Event::dispatch(new SubscriptionCancelled($this, $reason));
+        Event::dispatch(new SubscriptionCancelled($this, $reason));
 
-            return $this;
-        });
+        return $this;
     }
 
     /**
@@ -344,19 +339,17 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
             throw new LogicException('Unable to resume a subscription that is not within grace period.');
         }
 
-        return DB::transaction(function () {
-            $item = $this->scheduleNewOrderItemAt($this->ends_at);
+        $item = $this->scheduleNewOrderItemAt($this->ends_at);
 
-            $this->fill([
-                'cycle_ends_at' => $this->ends_at,
-                'ends_at' => null,
-                'scheduled_order_item_id' => $item->id,
-            ])->save();
+        $this->fill([
+            'cycle_ends_at' => $this->ends_at,
+            'ends_at' => null,
+            'scheduled_order_item_id' => $item->id,
+        ])->save();
 
-            Event::dispatch(new SubscriptionResumed($this));
+        Event::dispatch(new SubscriptionResumed($this));
 
-            return $this;
-        });
+        return $this;
     }
 
     /**
@@ -459,11 +452,11 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
 
         if(! empty($subscription->next_plan)) {
             $plan_swapped = true;
-            $subscription->plan = $subscription->next_plan;
+            $subscription->plan_name = $subscription->next_plan;
             $subscription->next_plan = null;
         }
 
-        $item = DB::transaction(function () use (&$subscription, $item) {
+        $item = (function () use (&$subscription, $item) {
             $next_cycle_ends_at = $subscription->cycle_ends_at->copy()->modify('+' . $subscription->plan()->interval());
             $subscription->cycle_started_at = $subscription->cycle_ends_at;
             $subscription->cycle_ends_at = $next_cycle_ends_at;
@@ -479,7 +472,7 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
             ];
 
             return $item;
-        });
+        })();
 
         if($plan_swapped) {
             Event::dispatch(new SubscriptionPlanSwapped($subscription));
@@ -495,13 +488,11 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
      */
     public function syncTaxPercentage()
     {
-        return DB::transaction(function () {
-            $this->update([
-                'tax_percentage' => $this->owner->taxPercentage(),
-            ]);
+        $this->update([
+            'tax_percentage' => $this->owner->taxPercentage(),
+        ]);
 
-            return $this;
-        });
+        return $this;
     }
 
     /**
@@ -511,7 +502,7 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
      */
     public function plan()
     {
-        return app(PlanRepository::class)::find($this->plan);
+        return app(PlanRepository::class)::find($this->plan_name);
     }
 
     /**
@@ -687,41 +678,38 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
     {
         $now = $now ?: now();
 
-        return DB::transaction(function () use ($applyNewSettings, $now, $invoiceNow) {
+        // Wrap up current billing cycle
+        $this->removeScheduledOrderItem();
+        $reimbursement = $this->reimburseUnusedTime($now);
 
-            // Wrap up current billing cycle
-            $this->removeScheduledOrderItem();
-            $reimbursement = $this->reimburseUnusedTime($now);
+        $orderItems = (new OrderItemCollection([$reimbursement]))->filter();
 
-            $orderItems = (new OrderItemCollection([$reimbursement]))->filter();
+        // Apply new subscription settings
+        call_user_func($applyNewSettings);
 
-            // Apply new subscription settings
-            call_user_func($applyNewSettings);
+        if($this->onTrial()) {
 
-            if($this->onTrial()) {
+            // Reschedule next cycle's OrderItem using the new subscription settings
+            $orderItems[] = $this->scheduleNewOrderItemAt($this->trial_ends_at);
 
-                // Reschedule next cycle's OrderItem using the new subscription settings
-                $orderItems[] = $this->scheduleNewOrderItemAt($this->trial_ends_at);
+        } else { // Start a new billing cycle using the new subscription settings
 
-            } else { // Start a new billing cycle using the new subscription settings
+            // Reset the billing cycle
+            $this->cycle_started_at = $now;
+            $this->cycle_ends_at = $now;
 
-                // Reset the billing cycle
-                $this->cycle_started_at = $now;
-                $this->cycle_ends_at = $now;
+            // Create a new OrderItem, starting a new billing cycle
+            $orderItems[] = $this->scheduleNewOrderItemAt($now);
+        }
 
-                // Create a new OrderItem, starting a new billing cycle
-                $orderItems[] = $this->scheduleNewOrderItemAt($now);
-            }
+        $this->save();
 
-            $this->save();
+        if($invoiceNow) {
+            $order = Order::createFromItems($orderItems);
+            $order->processPayment();
+        }
 
-            if($invoiceNow) {
-                $order = Order::createFromItems($orderItems);
-                $order->processPayment();
-            }
-
-            return $this;
-        });
+        return $this;
     }
 
     /**

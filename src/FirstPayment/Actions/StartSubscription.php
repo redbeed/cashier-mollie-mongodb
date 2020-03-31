@@ -3,7 +3,7 @@
 namespace Laravel\Cashier\FirstPayment\Actions;
 
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Coupon\Contracts\CouponRepository;
 use Laravel\Cashier\Coupon\RedeemedCoupon;
 use Laravel\Cashier\Order\OrderItem;
@@ -72,7 +72,7 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
      */
     public static function createFromPayload(array $payload, Model $owner)
     {
-        $action = new static($owner, $payload['name'], $payload['plan']);
+        $action = new static($owner, $payload['name'], $payload['plan_name']);
 
         // Already validated when preparing the first payment, so don't validate again
         $action->builder()->skipCouponValidation();
@@ -117,7 +117,7 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
             'description' => $this->getDescription(),
             'subtotal' => money_to_mollie_array($this->getSubtotal()),
             'taxPercentage' => $this->getTaxPercentage(),
-            'plan' => $this->plan->name(),
+            'plan_name' => $this->plan->name(),
             'name' => $this->name,
             'trialExpires' => ! empty($this->trialExpires) ? $this->trialExpires->toIso8601String() : null,
             'quantity' => ! empty($this->quantity) ? $this->quantity : null,

@@ -3,7 +3,7 @@
 namespace Laravel\Cashier\SubscriptionBuilder;
 
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\FirstPayment\Actions\ActionCollection;
 use Laravel\Cashier\FirstPayment\Actions\AddGenericOrderItem;
 use Laravel\Cashier\FirstPayment\Actions\ApplySubscriptionCouponToPayment;

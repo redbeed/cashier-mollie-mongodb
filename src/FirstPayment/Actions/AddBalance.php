@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\FirstPayment\Actions;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Money\Money;
 
 class AddBalance extends AddGenericOrderItem

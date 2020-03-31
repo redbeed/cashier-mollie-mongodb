@@ -72,7 +72,6 @@ trait Billable
             try {
                 $mandate = $this->asMollieCustomer()->getMandate($this->mollie_mandate_id);
             } catch (ApiException $e) {} // A revoked mandate may no longer exist, so throws an exception
-
             $planModel = app(PlanRepository::class)::findOrFail($plan);
             $method = MandateMethod::getForFirstPaymentMethod($planModel->firstPaymentMethod());
 
@@ -190,7 +189,7 @@ trait Billable
         }
 
         return $subscription && $subscription->onTrial() &&
-            $subscription->plan === $plan;
+            $subscription->plan_name === $plan;
     }
 
     /**
@@ -234,7 +233,7 @@ trait Billable
             return $subscription->valid();
         }
         return $subscription->valid() &&
-               $subscription->plan === $plan;
+               $subscription->plan_name === $plan;
     }
 
     /**
@@ -249,7 +248,7 @@ trait Billable
             return false;
         }
         foreach ((array) $plans as $plan) {
-            if ($subscription->plan === $plan) {
+            if ($subscription->plan_name === $plan) {
                 return true;
             }
         }
@@ -507,16 +506,14 @@ trait Billable
         $coupon = app()->make(CouponRepository::class)->findOrFail($coupon);
         $coupon->validateFor($subscription);
 
-        return DB::transaction(function () use ($coupon, $subscription, $revokeOtherCoupons) {
-            if($revokeOtherCoupons) {
-                $otherCoupons = $subscription->redeemedCoupons()->active()->get();
-                $otherCoupons->each->revoke();
-            }
+        if($revokeOtherCoupons) {
+            $otherCoupons = $subscription->redeemedCoupons()->active()->get();
+            $otherCoupons->each->revoke();
+        }
 
-            RedeemedCoupon::record($coupon, $subscription);
+        RedeemedCoupon::record($coupon, $subscription);
 
-            return $this;
-        });
+        return $this;
     }
 
     /**

@@ -3,7 +3,7 @@
 namespace Laravel\Cashier;
 
 use Exception;
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Order\Order;
 use Laravel\Cashier\Order\OrderItem;
 use Money\Currencies\ISOCurrencies;

@@ -676,7 +676,7 @@ class DatabasePlanRepository implements PlanRepository
 namespace App;
 
 use Laravel\Cashier\Plan\Plan as CashierPlan;
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 
 class Plan extends Model
 {

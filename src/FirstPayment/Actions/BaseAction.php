@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\FirstPayment\Actions;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Cashier;
 
 abstract class BaseAction

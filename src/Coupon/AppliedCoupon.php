@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\Coupon;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Order\Contracts\InteractsWithOrderItems;
 use Laravel\Cashier\Order\OrderItem;
 

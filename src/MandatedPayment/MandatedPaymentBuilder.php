@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\MandatedPayment;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Cashier;
 use Mollie\Api\Types\SequenceType;
 use Money\Money;

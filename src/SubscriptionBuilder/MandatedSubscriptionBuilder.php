@@ -3,7 +3,7 @@
 namespace Laravel\Cashier\SubscriptionBuilder;
 
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Laravel\Cashier\Coupon\Contracts\CouponRepository;
 use Laravel\Cashier\Plan\Contracts\PlanRepository;
@@ -94,27 +94,25 @@ class MandatedSubscriptionBuilder implements Contract
         $this->owner->guardMollieMandate();
         $now = now();
 
-        return DB::transaction(function () use ($now) {
-            $subscription = $this->makeSubscription($now);
-            $subscription->save();
+        $subscription = $this->makeSubscription($now);
+        $subscription->save();
 
-            if($this->coupon) {
-                if($this->validateCoupon) {
-                    $this->coupon->validateFor($subscription);
+        if($this->coupon) {
+            if($this->validateCoupon) {
+                $this->coupon->validateFor($subscription);
 
-                    if($this->handleCoupon) {
-                        $this->coupon->redeemFor($subscription);
-                    }
+                if($this->handleCoupon) {
+                    $this->coupon->redeemFor($subscription);
                 }
             }
+        }
 
-            $subscription->scheduleNewOrderItemAt($this->nextPaymentAt);
-            $subscription->save();
+        $subscription->scheduleNewOrderItemAt($this->nextPaymentAt);
+        $subscription->save();
 
-            $this->owner->cancelGenericTrial();
+        $this->owner->cancelGenericTrial();
 
-            return $subscription;
-        });
+        return $subscription;
     }
 
     /**
@@ -127,7 +125,7 @@ class MandatedSubscriptionBuilder implements Contract
     {
         return $this->owner->subscriptions()->make([
             'name' => $this->name,
-            'plan' => $this->plan->name(),
+            'plan_name' => $this->plan->name(),
             'quantity' => $this->quantity,
             'tax_percentage' => $this->owner->taxPercentage() ?: 0,
             'trial_ends_at' => $this->trialExpires,

@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\Order;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -61,47 +61,45 @@ class Order extends Model
      */
     public static function createFromItems(OrderItemCollection $items, $overrides = [], $process_items = true)
     {
-        return DB::transaction(function () use ($items, $overrides, $process_items) {
+        if($process_items) {
+            $items = $items->preprocess();
+        }
+
+        if($items->currencies()->count() > 1) {
+            throw new LogicException('Creating an order requires items to have a single currency.');
+        }
+
+        if($items->owners()->count() > 1) {
+            throw new LogicException('Creating an order requires items to have a single owner.');
+        }
+
+        $currency = $items->first()->currency;
+        $owner = $items->first()->owner;
+
+        $total = $items->sum('total');
+
+        $order = static::create(array_merge([
+            'owner_id' => $owner->id,
+            'owner_type' => get_class($owner),
+            'number' => static::numberGenerator()->generate(),
+            'currency' => $currency,
+            'subtotal' => $items->sum('subtotal'),
+            'tax' => $items->sum('tax'),
+            'total' => $total,
+            'total_due' => $total,
+        ], $overrides));
+
+        $items->each(function (OrderItem $item) use ($order, $process_items) {
+            $item->update(['order_id' => $order->id]);
+
             if($process_items) {
-                $items = $items->preprocess();
+                $item->process();
             }
-
-            if($items->currencies()->count() > 1) {
-                throw new LogicException('Creating an order requires items to have a single currency.');
-            }
-
-            if($items->owners()->count() > 1) {
-                throw new LogicException('Creating an order requires items to have a single owner.');
-            }
-
-            $currency = $items->first()->currency;
-            $owner = $items->first()->owner;
-
-            $total = $items->sum('total');
-
-            $order = static::create(array_merge([
-                'owner_id' => $owner->id,
-                'owner_type' => get_class($owner),
-                'number' => static::numberGenerator()->generate(),
-                'currency' => $currency,
-                'subtotal' => $items->sum('subtotal'),
-                'tax' => $items->sum('tax'),
-                'total' => $total,
-                'total_due' => $total,
-            ], $overrides));
-
-            $items->each(function (OrderItem $item) use ($order, $process_items) {
-                $item->update(['order_id' => $order->id]);
-
-                if($process_items) {
-                    $item->process();
-                }
-            });
-
-            Event::dispatch(new OrderCreated($order));
-
-            return $order;
         });
+
+        Event::dispatch(new OrderCreated($order));
+
+        return $order;
     }
 
     /**
@@ -149,65 +147,63 @@ class Order extends Model
         $minimumPaymentAmount = app(MinimumPayment::class)::forMollieMandate($mandate, $this->getCurrency());
         $this->update(['mollie_payment_id' => 'temp_' . Str::uuid()]);
 
-        DB::transaction(function () use ($minimumPaymentAmount) {
-            $owner = $this->owner;
+        $owner = $this->owner;
 
-            // Process user balance, if any
-            if($owner->hasCredit($this->currency)) {
-                $total = $this->getTotal();
-                $this->balance_before = $owner->credit($this->currency)->value;
+        // Process user balance, if any
+        if($owner->hasCredit($this->currency)) {
+            $total = $this->getTotal();
+            $this->balance_before = $owner->credit($this->currency)->value;
 
-                $creditUsed = $owner->maxOutCredit($total);
-                $this->credit_used = (int) $creditUsed->getAmount();
-                $this->total_due = $total->subtract($creditUsed)->getAmount();
-            }
+            $creditUsed = $owner->maxOutCredit($total);
+            $this->credit_used = (int) $creditUsed->getAmount();
+            $this->total_due = $total->subtract($creditUsed)->getAmount();
+        }
 
-            $totalDue = money($this->total_due, $this->currency);
+        $totalDue = money($this->total_due, $this->currency);
 
-            switch(true) {
-                case $totalDue->isZero():
-                    // No payment processing required
-                    $this->mollie_payment_id = null;
-                    break;
+        switch(true) {
+            case $totalDue->isZero():
+                // No payment processing required
+                $this->mollie_payment_id = null;
+                break;
 
-                case $totalDue->lessThan($minimumPaymentAmount):
-                    // No payment processing required
-                    $this->mollie_payment_id = null;
+            case $totalDue->lessThan($minimumPaymentAmount):
+                // No payment processing required
+                $this->mollie_payment_id = null;
 
-                    // Add credit to the owner's balance
-                    $credit = Credit::addAmountForOwner($owner, money(-($this->total_due), $this->currency));
+                // Add credit to the owner's balance
+                $credit = Credit::addAmountForOwner($owner, money(-($this->total_due), $this->currency));
 
-                    if (! $owner->hasActiveSubscriptionWithCurrency($this->currency)) {
-                        Event::dispatch(new BalanceTurnedStale($credit));
-                    }
-                    break;
+                if (! $owner->hasActiveSubscriptionWithCurrency($this->currency)) {
+                    Event::dispatch(new BalanceTurnedStale($credit));
+                }
+                break;
 
-                case $totalDue->greaterThanOrEqual($minimumPaymentAmount):
+            case $totalDue->greaterThanOrEqual($minimumPaymentAmount):
 
-                    // Create Mollie payment
-                    $payment = (new MandatedPaymentBuilder(
-                        $owner,
-                        "Order " . $this->number,
-                        $totalDue,
-                        url(config('cashier.webhook_url')),
-                        [
-                            'metadata' => [
-                                'temporary_mollie_payment_id' => $this->mollie_payment_id,
-                            ],
-                        ]
-                    ))->create();
+                // Create Mollie payment
+                $payment = (new MandatedPaymentBuilder(
+                    $owner,
+                    "Order " . $this->number,
+                    $totalDue,
+                    url(config('cashier.webhook_url')),
+                    [
+                        'metadata' => [
+                            'temporary_mollie_payment_id' => $this->mollie_payment_id,
+                        ],
+                    ]
+                ))->create();
 
-                    $this->mollie_payment_id = $payment->id;
-                    $this->mollie_payment_status = 'open';
-                    break;
+                $this->mollie_payment_id = $payment->id;
+                $this->mollie_payment_status = 'open';
+                break;
 
-                default:
-                    break;
-            }
+            default:
+                break;
+        }
 
-            $this->processed_at = now();
-            $this->save();
-        });
+        $this->processed_at = now();
+        $this->save();
 
         Event::dispatch(new OrderProcessed($this));
 
@@ -376,27 +372,25 @@ class Order extends Model
      */
     public function handlePaymentFailed()
     {
-        return DB::transaction(function () {
-            if($this->creditApplied()) {
-                $this->owner->addCredit($this->getCreditUsed());
-            }
+        if($this->creditApplied()) {
+            $this->owner->addCredit($this->getCreditUsed());
+        }
 
-            $this->update([
-                'mollie_payment_status' => 'failed',
-                'balance_before' => 0,
-                'credit_used' => 0,
-            ]);
+        $this->update([
+            'mollie_payment_status' => 'failed',
+            'balance_before' => 0,
+            'credit_used' => 0,
+        ]);
 
-            Event::dispatch(new OrderPaymentFailed($this));
+        Event::dispatch(new OrderPaymentFailed($this));
 
-            $this->items->each(function (OrderItem $item) {
-                $item->handlePaymentFailed();
-            });
-
-            $this->owner->validateMollieMandate();
-
-            return $this;
+        $this->items->each(function (OrderItem $item) {
+            $item->handlePaymentFailed();
         });
+
+        $this->owner->validateMollieMandate();
+
+        return $this;
     }
 
     /**
@@ -407,16 +401,14 @@ class Order extends Model
      */
     public function handlePaymentPaid()
     {
-        return DB::transaction(function () {
-            $this->update(['mollie_payment_status' => 'paid']);
-            Event::dispatch(new OrderPaymentPaid($this));
+        $this->update(['mollie_payment_status' => 'paid']);
+        Event::dispatch(new OrderPaymentPaid($this));
 
-            $this->items->each(function (OrderItem $item) {
-                $item->handlePaymentPaid();
-            });
-
-            return $this;
+        $this->items->each(function (OrderItem $item) {
+            $item->handlePaymentPaid();
         });
+
+        return $this;
     }
 
     /**

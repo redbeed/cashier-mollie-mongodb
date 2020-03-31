@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\Events;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Illuminate\Queue\SerializesModels;
 
 class MandateUpdated

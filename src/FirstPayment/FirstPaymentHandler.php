@@ -41,17 +41,15 @@ class FirstPaymentHandler
      */
     public function execute()
     {
-        $order = DB::transaction(function () {
-            $this->owner->mollie_mandate_id = $this->payment->mandateId;
-            $this->owner->save();
+        $this->owner->mollie_mandate_id = $this->payment->mandateId;
+        $this->owner->save();
 
-            $orderItems = $this->executeActions();
+        $orderItems = $this->executeActions();
 
-            return Order::createProcessedFromItems($orderItems, [
-                'mollie_payment_id' => $this->payment->id,
-                'mollie_payment_status' => $this->payment->status,
-            ]);
-        });
+        $order = Order::createProcessedFromItems($orderItems, [
+            'mollie_payment_id' => $this->payment->id,
+            'mollie_payment_status' => $this->payment->status,
+        ]);
 
         event(new MandateUpdated($this->owner));
 

@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\FirstPayment\Actions;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Laravel\Cashier\Order\OrderItemCollection;
 
 abstract class BaseNullAction extends BaseAction

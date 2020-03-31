@@ -2,7 +2,7 @@
 
 namespace Laravel\Cashier\Credit;
 
-use Illuminate\Database\Eloquent\Model;
+use Jenssegers\Mongodb\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Laravel\Cashier\Traits\HasOwner;
 use Money\Money;
@@ -22,23 +22,21 @@ class Credit extends Model
      */
     public static function addAmountForOwner(Model $owner, Money $amount)
     {
-        return DB::transaction(function () use ($owner, $amount) {
-            $current = static::whereOwner($owner)->whereCurrency($amount->getCurrency()->getCode())->first();
+        $current = static::whereOwner($owner)->whereCurrency($amount->getCurrency()->getCode())->first();
 
-            // if the owner already has a credit
-            if($current) {
-                $current->increment('value', (int) $amount->getAmount());
-                return $current;
-            }
+        // if the owner already has a credit
+        if($current) {
+            $current->increment('value', (int) $amount->getAmount());
+            return $current;
+        }
 
-            // if the owner has no credit yet
-            return static::create([
-                'owner_id' => $owner->id,
-                'owner_type' => get_class($owner),
-                'currency' => $amount->getCurrency()->getCode(),
-                'value' => (int) $amount->getAmount(),
-            ]);
-        });
+        // if the owner has no credit yet
+        return static::create([
+            'owner_id' => $owner->id,
+            'owner_type' => get_class($owner),
+            'currency' => $amount->getCurrency()->getCode(),
+            'value' => (int) $amount->getAmount(),
+        ]);
     }
 
     /**
@@ -50,18 +48,16 @@ class Credit extends Model
      */
     public static function maxOutForOwner(Model $owner, Money $amount)
     {
-        return DB::transaction(function () use ($owner, $amount) {
-            $credit = static::whereOwner($owner)->whereCurrency($amount->getCurrency()->getCode())->firstOrCreate([]);
+        $credit = static::whereOwner($owner)->whereCurrency($amount->getCurrency()->getCode())->firstOrCreate([]);
 
-            if ($credit->value == 0) {
-                return money(0, $amount->getCurrency()->getCode());
-            }
+        if ($credit->value == 0) {
+            return money(0, $amount->getCurrency()->getCode());
+        }
 
-            $use_credit = min([$credit->value, (int) $amount->getAmount()]);
-            $credit->decrement('value', $use_credit);
+        $use_credit = min([$credit->value, (int) $amount->getAmount()]);
+        $credit->decrement('value', $use_credit);
 
-            return money($use_credit, $amount->getCurrency()->getCode());
-        });
+        return money($use_credit, $amount->getCurrency()->getCode());
     }
 
     /**
