@@ -448,6 +448,7 @@ class Subscription extends Model implements InteractsWithOrderItems, Preprocesse
     {
         /** @var Subscription scheduled_order_item_id */
         $subscription = $item->orderable;
+
         $plan_swapped = false;
 
         if(! empty($subscription->next_plan)) {

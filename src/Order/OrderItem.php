@@ -176,7 +176,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function preprocess()
     {
-        if($this->orderableIsSet()) {
+        if($this->orderableIsSet() && $this->orderable) {
             return $this->orderable->preprocessOrderItem($this);
         }
 
@@ -198,7 +198,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function process()
     {
-        if($this->orderableIsSet()) {
+        if($this->orderableIsSet() && $this->orderable) {
             $result = $this->orderable->processOrderItem($this);
             $result->save();
 
